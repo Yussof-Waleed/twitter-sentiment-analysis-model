@@ -1,0 +1,8 @@
+venv
+xdata.csv
+twitter_sentiment_model.keras
+twitter_data.csv
+train.py
+tokenizer.pickle
+test.py
+logs/
