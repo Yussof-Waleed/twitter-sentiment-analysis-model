@@ -28,6 +28,10 @@ source env/bin/activate
 
 # For Windows
 env\Scripts\activate
+
+# Note: Some Windows installations may have a 'bin' folder instead of 'Scripts'
+# If that's the case, use:
+env\bin\activate
 ```
 
 ### 3. Install Dependencies
