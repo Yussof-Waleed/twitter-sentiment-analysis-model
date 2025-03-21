@@ -43,7 +43,7 @@ nltk.download('stopwords', quiet=True)
 nltk.download('wordnet', quiet=True)
 
 # Create directories for outputs
-os.makedirs('visualizations', exist_ok=True)
+os.makedirs('images', exist_ok=True)
 os.makedirs('models', exist_ok=True)
 os.makedirs('logs', exist_ok=True)
 
@@ -146,6 +146,55 @@ def download_twitter_data(file_path='twitter_data.csv'):
         # Clean initial data
         df = df[['text', 'sentiment']].dropna()
         df['sentiment'] = df['sentiment'].astype(int)
+        
+        # Shuffle the dataset to ensure random sampling
+        df = df.sample(frac=1, random_state=CONFIG['random_seed']).reset_index(drop=True)
+
+        # Set maximum size for the balanced dataset
+        max_dataset_size = 100000
+
+        # Determine number of samples per sentiment class
+        num_classes = len(df['sentiment'].unique())
+        samples_per_class = max_dataset_size // num_classes
+
+        # Create a balanced dataset with equal representation from each class
+        print(f"🔄 Balancing dataset: targeting {samples_per_class} samples per class...")
+        balanced_df = pd.DataFrame()
+
+        for sentiment in df['sentiment'].unique():
+            # Extract samples for current sentiment
+            sentiment_df = df[df['sentiment'] == sentiment]
+            available_samples = len(sentiment_df)
+            
+            # Sample or take all available data
+            if available_samples > samples_per_class:
+                sentiment_df = sentiment_df.sample(samples_per_class, random_state=CONFIG['random_seed'])
+                print(f"  Class {sentiment}: sampled {samples_per_class} from {available_samples} available")
+            else:
+                print(f"  Class {sentiment}: using all {available_samples} available samples (less than target)")
+            
+            # Add to balanced dataset
+            balanced_df = pd.concat([balanced_df, sentiment_df])
+
+        # Shuffle the final balanced dataset
+        df = balanced_df.sample(frac=1, random_state=CONFIG['random_seed']).reset_index(drop=True)
+        
+        # Print the final size of the dataset
+        print(f"✅ Final balanced dataset size: {len(df)} samples ({samples_per_class} per class)")
+        # Get equal number of samples from each sentiment class
+        sentiment_counts = df['sentiment'].value_counts()
+        min_count = sentiment_counts.min()
+        
+        # Create a balanced dataset with equal representation from each class
+        balanced_df = pd.DataFrame()
+        for sentiment in df['sentiment'].unique():
+            sentiment_df = df[df['sentiment'] == sentiment].sample(min_count, random_state=CONFIG['random_seed'])
+            balanced_df = pd.concat([balanced_df, sentiment_df])
+        
+        # Shuffle the balanced dataset again
+        df = balanced_df.sample(frac=1, random_state=CONFIG['random_seed']).reset_index(drop=True)
+
+
         
         # Log dataset statistics
         print(f"✅ Dataset loaded successfully: {len(df)} entries")
@@ -410,7 +459,7 @@ def analyze_data(df):
     plt.tight_layout()
     
     # Save comprehensive analysis
-    plt.savefig('visualizations/data_analysis.png', dpi=300, bbox_inches='tight')
+    plt.savefig('images/data_analysis.png', dpi=300, bbox_inches='tight')
     plt.close()
     
     # Generate word clouds for each sentiment
@@ -435,7 +484,7 @@ def analyze_data(df):
             plt.axis('off')
         
         plt.tight_layout()
-        plt.savefig('visualizations/sentiment_wordclouds.png', dpi=300, bbox_inches='tight')
+        plt.savefig('images/sentiment_wordclouds.png', dpi=300, bbox_inches='tight')
         plt.close()
         
     except ImportError:
@@ -453,9 +502,14 @@ def prepare_data(df):
     tokenizer = Tokenizer(num_words=CONFIG['max_words'], oov_token='<OOV>')
     tokenizer.fit_on_texts(df['processed_text'])
     
+    # Save the fitted tokenizer
+    with open('models/tokenizer.pickle', 'wb') as handle:
+        pickle.dump(tokenizer, handle, protocol=pickle.HIGHEST_PROTOCOL)
+    print("✅ Tokenizer saved to 'models/tokenizer.pickle'")
+    
     sequences = tokenizer.texts_to_sequences(df['processed_text'])
     padded_sequences = pad_sequences(sequences, maxlen=CONFIG['max_len'], padding='post')
-    
+
     # Print vocabulary stats
     word_index = tokenizer.word_index
     print(f"Total unique words: {len(word_index)}")
@@ -634,7 +688,7 @@ def build_model(tokenizer, embedding_matrix=None):
     # Compile model
     model.compile(
         loss='categorical_crossentropy',
-        optimizer=Adam(learning_rate=lr_schedule),
+        optimizer=Adam(learning_rate=CONFIG['learning_rate']),
         metrics=[
             'accuracy',
             tf.keras.metrics.Precision(name='precision'),
@@ -650,7 +704,7 @@ def build_model(tokenizer, embedding_matrix=None):
     try:
         tf.keras.utils.plot_model(
             model, 
-            to_file='visualizations/model_architecture.png',
+            to_file='images/model_architecture.png',
             show_shapes=True, 
             show_dtype=True,
             show_layer_names=True,
@@ -900,7 +954,7 @@ def create_rnn_visualization():
     
     # Save the visualization
     plt.tight_layout()
-    plt.savefig('visualizations/rnn_architecture.png', dpi=300, bbox_inches='tight')
+    plt.savefig('images/rnn_architecture.png', dpi=300, bbox_inches='tight')
     plt.close()
     print("✅ RNN architecture visualization saved")
 
@@ -927,15 +981,16 @@ def train_model(model, X_train, y_train, X_val, y_val, class_weights):
                 mode='min'
             ),
             
-            # Model checkpoint to save best model
+            # Model checkpoint to save after each epoch
             ModelCheckpoint(
-                filepath=f"models/{model_name}_best.keras",
+                filepath=f"models/{model_name}_epoch_{{epoch:02d}}.keras",
                 monitor='val_loss',
-                save_best_only=True,
+                save_best_only=False,
                 verbose=1,
-                mode='min'
+                mode='min',
+                save_freq='epoch'
             ),
-            
+
             # Learning rate reducer
             ReduceLROnPlateau(
                 monitor='val_loss',
@@ -1016,7 +1071,7 @@ def visualize_training_history(history, model_name):
     plt.legend()
     
     plt.tight_layout()
-    plt.savefig(f'visualizations/{model_name}_training_history.png', dpi=300)
+    plt.savefig(f'images/{model_name}_training_history.png', dpi=300)
     plt.close()
     print(f"✅ Training history visualization saved")
 
@@ -1111,7 +1166,7 @@ def evaluate_model(model, X_test, y_test, tokenizer, model_name):
     plt.grid(True)
     
     plt.tight_layout()
-    plt.savefig(f'visualizations/{model_name}_evaluation.png', dpi=300, bbox_inches='tight')
+    plt.savefig(f'images/{model_name}_evaluation.png', dpi=300, bbox_inches='tight')
     plt.close()
     print("✅ Evaluation visualizations saved")
     
@@ -1184,7 +1239,10 @@ def error_analysis(X_test, y_true, y_pred, y_pred_prob, tokenizer, model_name):
     
     # Count mistakes by confidence
     confidences = y_pred_prob[misclassified_indices, y_pred[misclassified_indices]]
-    binned = np.digitize(confidences, confidence_bins[1:]) - 1
+    # Use full bin array and don't subtract 1
+    binned = np.digitize(confidences, confidence_bins) - 1
+    # Clip to avoid negative values
+    binned = np.clip(binned, 0, len(bin_labels)-1)
     mistake_counts = np.bincount(binned, minlength=len(bin_labels))
     
     # Plot
@@ -1198,7 +1256,7 @@ def error_analysis(X_test, y_true, y_pred, y_pred_prob, tokenizer, model_name):
         plt.text(i, count + 0.5, str(count), ha='center')
     
     plt.tight_layout()
-    plt.savefig(f'visualizations/{model_name}_error_by_confidence.png', dpi=300)
+    plt.savefig(f'images/{model_name}_error_by_confidence.png', dpi=300)
     plt.close()
     print("✅ Error confidence visualization saved")
 

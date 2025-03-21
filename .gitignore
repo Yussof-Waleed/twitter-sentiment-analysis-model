@@ -1,10 +1,10 @@
 venv
+logs
+models
+images
+results
+visualizations
 xdata.csv
-twitter_sentiment_model.keras
 twitter_data.csv
-train.py
-tokenizer.pickle
-test.py
-logs/
-models/
-visualizations/*
+
+
