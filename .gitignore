@@ -6,3 +6,5 @@ train.py
 tokenizer.pickle
 test.py
 logs/
+models/
+visualizations/
